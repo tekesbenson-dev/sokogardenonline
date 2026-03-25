@@ -1,252 +1,218 @@
-#import flask and its components
-from colorama import Cursor
-from flask import Flask , request ,jsonify
-
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import pymysql
 import os
 
-#import the pymysql module - it helps us to create a connection between python flask and mysql database
-import pymysql
-
-
-#create flask and give it a name
-app = Flask(__name__)
-
-#configure the location to to where your products images will be saved
-app.config["UPLOAD_FOLDER"]= "static/images"
-
-
-@app.route("/api/signup", methods =["POST"])
-def signup():
-    if request.method=="POST":
-        #extract the different details entered on the form
-        # Extract the details from the form
-     username = request.form.get("username")
-     email = request.form.get("email")
-     phone = request.form.get("phone")
-    password = request.form.get("password")
-
-
-        #by use of the print function lets print all those details sent with the upcoming request
-        # print(username,email,password,phone)
-
-
-        #establish a connection between flask/python and mysql
-    connection = pymysql.connect(host="localhost", user="root", password="", database="sokogardenonline")
-
-
-
-        #create a cursor to execute the sql queries
-    cursor = connection.cursor()
-
-
-        
-
-
-        #structure an sql to insert the details received form
-        #The %s is a placeholder - a placeholder stands in place of actual values i.e we shall replace later on
-    sql = "INSERT INTO users(username,email,phone,password) VALUES(%s,%s,%s,%s)"
-
-        #create a tuple that willl hold all the data gotten from form
-    data = (username,email,phone,password)
-
-
-        #by the use of a cursor, executr the sql as you replace the placeholder with actual values
-    cursor.execute(sql,data)
-
-        #commit the changes to the database
-    connection.commit()
-    return jsonify({"message":"User regestration was successful"})
-
-
-
-
-#below is the login/signin in route
-@app.route("/api/signin", methods =["POST"])
-def signin():
-   if request.method == "POST":
-   
-   
-    #extract two details enterd
-    email= request.form["email"]
-    password = request.form["password"]
-
-    print(email,password)
-
-    #create/setablish a connection to the database
-   
-    connection= pymysql.connect(host="localhost", user="root", password="", database="sokogardenonline")
-
-    cursor=connection.cursor(pymysql.cursors.DictCursor)
-
-    #structure the sql query  that will check whether the email and the oassword enterd is correct
-    sql = "SELECT * FROM users WHERE email = %s AND password = %s"
-
-    #put the data received from the form into tuple
-    data = (email,password)
-
-    #by the use of the cursor execute the sql
-    cursor.execute(sql,data)
-
-    #check whether there are rows returned and store the same on a variable
-    count=cursor.rowcount
-
-   
-
-        #if there are record return it means the password and email are correct otherwise it means they are wrong
-    if count==0:
-            return jsonify({"message":"Login failed"})
-    else:
-            #there must be a user so we create a variable that will hold the details of the user fotched from the database
-            user=cursor.fetchone()
-            #retur
-            return jsonify({"message": "Login Successfully", "user": user})
-
-
-#below is the route for adding products
-@app.route("/api/add_product",methods=["POST"])
-def Addproducts():
-    if request.method=="POST":
-        #extract the data entered in the form
-        product_name = request.form["product_name"]
-        product_description = request.form["product_description"]
-        product_cost = request.form["product_cost"] 
-        #for the product photo,we shall fetch it from files as shown below
-        product_photo = request.files["product_photo"]
-
-        
-
-
-        #extract the file name
-        filename = product_photo.filename
-
-        # by use of the os module (operating system) we can extract the file path where the images is currently saved
-        photo_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-
-        #print("This is the photo path:", photo_path)
-        #save the  product photo image into the new location
-        product_photo.save(photo_path)
-       
-
-        #print them out to check whether you are receiving the details requested
-       # print(product_name,product_description,product_cost,product_photo)
-
-        #create a connection
-
-        connection= pymysql.connect(host="localhost", user="root", password="", database="sokogardenonline")
-       
-       
-        #create a cursor
-        cursor=connection.cursor()
-
-
-        #structure a sql query
-        sql= "INSERT INTO products(product_name, product_description, product_cost, product_photo) VALUES (%s, %s, %s, %s)"
-
-        #create a tuple that will hold data from which are current held into the different variables declared
-        data=(product_name,product_description,product_cost,product_photo)
-
-        #use the cursor to execute the sql to replace the placeholders
-        cursor.execute(sql,data)
-
-        #commit the cahnges in database
-        connection.commit()
-
-
-
-
-        
-
-
-
-    return jsonify({"message":"Product added succesfully"})
-
-#print
-#below is the route for fetching products
-@app.route("/api/get_products")
-def get_products():
-    connection= pymysql.connect(host="localhost", user="root", password="", database="sokogardenonline")
-     #create a cursoe
-    cursor = connection.cursor()
-
-    #structure the query to fetch all the products from products_details
-    sql = "SELECT * FROM products"
-
-    #execute the query
-    cursor.execute(sql)
-
-    
-    # fetch all rows returned by the query and store them in a variable
-    products = cursor.fetchall()
-
-    # # print the products to check whether we are getting the data
-    # print(products)
-
-    # return the products as JSON response
-    return jsonify(products)
-
-# Mpesa Payment Route/Endpoint 
+# mpesa imports
 import requests
 import datetime
 import base64
 from requests.auth import HTTPBasicAuth
- 
+
+app = Flask(__name__)
+CORS(app)
+
+# =========================
+# CONFIG
+# =========================
+app.config["UPLOAD_FOLDER"] = "static/images"
+
+# Ensure folder exists
+if not os.path.exists(app.config["UPLOAD_FOLDER"]):
+    os.makedirs(app.config["UPLOAD_FOLDER"])
+
+# =========================
+# DB CONNECTION (FIXED)
+# =========================
+def connect_db():
+    return pymysql.connect(
+        host="mysql-bensontekes.alwaysdata.net",  # 🔥 CHANGE if different
+        user="bensontekes",
+        password="modcom1234",
+        database="bensontekes_dailybite",
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+# =========================
+# HOME ROUTE
+# =========================
+@app.route("/")
+def home():
+    return "Daily Bite Backend Running 🚀"
+
+# =========================
+# SIGNUP
+# =========================
+@app.route("/api/signup", methods=["POST"])
+def signup():
+    conn = None
+    try:
+        username = request.form.get("username")
+        email = request.form.get("email")
+        phone = request.form.get("phone")
+        password = request.form.get("password")
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        sql = "INSERT INTO users(username,email,phone,password) VALUES(%s,%s,%s,%s)"
+        cursor.execute(sql, (username, email, phone, password))
+        conn.commit()
+
+        return jsonify({"message": "User registered successfully"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    finally:
+        if conn:
+            conn.close()
+
+# =========================
+# SIGNIN
+# =========================
+@app.route("/api/signin", methods=["POST"])
+def signin():
+    conn = None
+    try:
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        sql = "SELECT * FROM users WHERE email=%s AND password=%s"
+        cursor.execute(sql, (email, password))
+
+        if cursor.rowcount == 0:
+            return jsonify({"message": "Login failed"})
+        else:
+            user = cursor.fetchone()
+            return jsonify({"message": "Login successful", "user": user})
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    finally:
+        if conn:
+            conn.close()
+
+# =========================
+# ADD PRODUCT (FIXED)
+# =========================
+@app.route("/api/add_product", methods=["POST"])
+def add_product():
+    conn = None
+    try:
+        product_name = request.form.get("product_name")
+        product_description = request.form.get("product_description")
+        product_cost = request.form.get("product_cost")
+        product_photo = request.files.get("product_photo")
+
+        if not product_photo:
+            return jsonify({"error": "No image uploaded"})
+
+        filename = product_photo.filename
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+
+        product_photo.save(filepath)
+
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        sql = """
+        INSERT INTO products(product_name, product_description, product_cost, product_photo)
+        VALUES (%s, %s, %s, %s)
+        """
+
+        cursor.execute(sql, (product_name, product_description, product_cost, filename))
+        conn.commit()
+
+        return jsonify({"message": "Product added successfully"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    finally:
+        if conn:
+            conn.close()
+
+# =========================
+# GET PRODUCTS
+# =========================
+@app.route("/api/get_products", methods=["GET"])
+def get_products():
+    conn = None
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM products")
+        products = cursor.fetchall()
+
+        return jsonify(products)
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    finally:
+        if conn:
+            conn.close()
+
+# =========================
+# MPESA PAYMENT
+# =========================
 @app.route('/api/mpesa_payment', methods=['POST'])
 def mpesa_payment():
-    if request.method == 'POST':
+    try:
         amount = request.form['amount']
         phone = request.form['phone']
-        # GENERATING THE ACCESS TOKEN
-        # create an account on safaricom daraja
-        consumer_key = "GTWADFxIpUfDoNikNGqq1C3023evM6UH"
-        consumer_secret = "amFbAoUByPV2rM5A"
- 
-        api_URL = "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"  # AUTH URL
+
+        consumer_key = "YOUR_CONSUMER_KEY"
+        consumer_secret = "YOUR_CONSUMER_SECRET"
+
+        # get access token
+        api_URL = "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
         r = requests.get(api_URL, auth=HTTPBasicAuth(consumer_key, consumer_secret))
- 
-        data = r.json()
-        access_token = "Bearer" + ' ' + data['access_token']
- 
-        #  GETTING THE PASSWORD
-        timestamp = datetime.datetime.today().strftime('%Y%m%d%H%M%S')
-        passkey = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
+        access_token = "Bearer " + r.json()['access_token']
+
+        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        passkey = "YOUR_PASSKEY"
         business_short_code = "174379"
+
         data = business_short_code + passkey + timestamp
-        encoded = base64.b64encode(data.encode())
-        password = encoded.decode('utf-8')
- 
-        # BODY OR PAYLOAD
+        password = base64.b64encode(data.encode()).decode('utf-8')
+
         payload = {
-            "BusinessShortCode": "174379",
-            "Password": "{}".format(password),
-            "Timestamp": "{}".format(timestamp),
+            "BusinessShortCode": business_short_code,
+            "Password": password,
+            "Timestamp": timestamp,
             "TransactionType": "CustomerPayBillOnline",
-            "Amount": "1",  # use 1 when testing
-            "PartyA": phone,  # change to your number
-            "PartyB": "174379",
+            "Amount": amount,
+            "PartyA": phone,
+            "PartyB": business_short_code,
             "PhoneNumber": phone,
             "CallBackURL": "https://modcom.co.ke/api/confirmation.php",
-            "AccountReference": "account",
-            "TransactionDesc": "account"
+            "AccountReference": "Daily Bite",
+            "TransactionDesc": "Payment"
         }
- 
-        # POPULAING THE HTTP HEADER
+
         headers = {
             "Authorization": access_token,
             "Content-Type": "application/json"
         }
- 
-        url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"  # C2B URL
- 
-        response = requests.post(url, json=payload, headers=headers)
-        print(response.text)
-        return jsonify({"message": "Please Complete Payment in Your Phone and we will deliver in minutes"})
 
+        url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
 
+        requests.post(url, json=payload, headers=headers)
 
+        return jsonify({"message": "Check your phone to complete payment"})
 
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
-
-
-
-    #run the application
-app.run(debug=True)
+# =========================
+# RUN SERVER
+# =========================
+if __name__ == "__main__":
+    app.run(debug=True)
